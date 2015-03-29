@@ -133,6 +133,14 @@ def my_gen_bpsk(bits, rate=8000, symbol_len=250, freq=1000):
     bpsk_signal = np.multiply(cos_signal, square_signal)
     return bpsk_signal, cos_signal, times, square_signal
 
+def generate_bpsk_signal(bits, rate = 8820, symbol_len = 250, freq = 1000):
+    square_signal = bits_to_signal(bits, symbol_len)
+    transmission_end_t = (float(symbol_len)/rate)*len(square_signal)
+    times = np.linspace(0,transmission_end_t,num=len(square_signal))
+    cos_signal = np.cos(freq*times)
+    bpsk_signal = np.multiply(cos_signal, square_signal)
+    return bpsk_signal
+
 def low_pass_filter(signal, rate, cutoff):
     w = thinkdsp.Wave(signal, rate)
     s = w.make_spectrum()
@@ -153,17 +161,6 @@ def demodulate(signal, samples_per_fft):
         phases = np.hstack((phases, find_phase(fft)))
     return phases
 
-def decode_phases_1(phases):
-    decoded = []
-    for phase in phases:
-        decoded_phase = min( np.mod(phase-phases[0],2*np.pi), np.mod(phase+np.pi-phases[0], 2*np.pi) )
-        decoded.append(decoded_phase)
-    print decoded
-    decoded = [1 if x > np.pi/4.0 else 0 for x in decoded]
-    print 'decoded'
-    print decoded
-    return decoded
-
 def decode_phases(phases):
     normalized = phases - np.mean(phases)
     decoded_phases = [1 if p > 0 else 0 for p in normalized]
@@ -172,7 +169,16 @@ def decode_phases(phases):
         decoded_phases = [1 if p == 0 else 0 for p in decoded_phases]
     return decoded_phases
 
+def cut_signal(x):
+    """snips out relevant part of signal"""
+    beginning, end = find_start_and_end(x, threshold=100)
+    print x[beginning:end]
+    return x[beginning:end]
+
 def decode_bpsk_signal(x, freq=1000, rate = 8000, symbol_len = 250, detection_threshold_factor = 0.3, LPFbw = 320):
+    print len(x)
+    x = cut_signal(x)
+    print len(x)
     transmission_end_t = (float(symbol_len)/rate)*len(x)
     times = np.linspace(0,transmission_end_t,num=len(x))
     phase_offsets = np.linspace(0,2*np.pi,16)
@@ -201,8 +207,18 @@ def test_decode():
     plt.show()
 
 if __name__ == '__main__':
+    from scipy.io import wavfile
+    fs, x = wavfile.read('AcousticModemRx.wav')
+# decode received signal into a numpy array of bits
+    bits = decode_bpsk_signal(x, freq=500, rate = fs, symbol_len = 250, detection_threshold_factor = 0.4, LPFbw = 320)
+# convert the numpy array of bits into a string
+    message_string = NPbits2String(bits)
+# print the decoded string
+    print message_string
+    """
     bits = string2NPArray('allen downey is gr9')
     bpsk_signal, cos_signal, times, square_signal = my_gen_bpsk(bits)
     phases, decoded = decode_bpsk_signal(bpsk_signal)
     original_str = bits_to_string(decoded)
     print original_str
+    """
