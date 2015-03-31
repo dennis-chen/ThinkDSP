@@ -142,11 +142,6 @@ def find_phase(fft):
 
 def demodulate(signal, samples_per_fft):
     phases = np.array([])
-    #split_signal = np.split(signal, len(signal)/samples_per_fft)
-    #for chunk in split_signal:
-    #    fft = scipy.fftpack.fft(chunk)
-    #    #print fft
-    #    phases = np.hstack((phases, find_phase(fft)))
     for i in np.arange(0,len(signal),samples_per_fft):
         try:
             chunk = signal[i:i+samples_per_fft]
@@ -156,6 +151,18 @@ def demodulate(signal, samples_per_fft):
         phases = np.hstack((phases, find_phase(fft)))
     return phases
 
+def plot_demodulate(signal, samples_per_fft):
+    phases = np.array([])
+    for i in np.arange(0,len(signal),samples_per_fft):
+        try:
+            chunk = signal[i:i+samples_per_fft]
+        except:
+            chunk = signal[i:]
+        fft = scipy.fftpack.fft(chunk)
+        phases = np.hstack((phases, find_phase(fft)))
+    plt.plot(phases)
+    plt.show()
+    
 def decode_phases(phases):
     normalized = phases - np.mean(phases)
     decoded_phases = [1 if p > 0 else 0 for p in normalized]
@@ -191,9 +198,29 @@ def decode_bpsk_signal(x, freq=1000, rate = 8000, symbol_len = 250, detection_th
         filtered_signal = low_pass_filter(recovered_signal, rate, LPFbw)
         filtered_signals.append(filtered_signal)
     best_signal = max(filtered_signals, key=lambda signal: max(signal))
+    best_signal,beginning,end = cut_signal(best_signal,detection_threshold_factor)
     phases = demodulate(best_signal, samples_per_fft=symbol_len)
     coded_bits = decode_phases(phases)
     bits = decode_bits(coded_bits)
+    return bits
+
+def plot_decode_bpsk_signal(x, freq=1000, rate = 8000, symbol_len = 250, detection_threshold_factor = 0.3, LPFbw = 320):
+    x,beginning,end = cut_signal(x,detection_threshold_factor)
+    transmission_end_t = len(x)/(1.0*rate)*2*np.pi
+    times = np.linspace(0,transmission_end_t,num=len(x))
+    phase_offsets = np.linspace(0,2*np.pi,16)
+    filtered_signals = []
+    for phase_offset in phase_offsets:
+        cos_signal = np.cos(freq*times + phase_offset)
+        recovered_signal = np.multiply(x, cos_signal)
+        filtered_signal = low_pass_filter(recovered_signal, rate, LPFbw)
+        filtered_signals.append(filtered_signal)
+    best_signal = max(filtered_signals, key=lambda signal: max(signal))
+    best_signal,beginning,end = cut_signal(best_signal,detection_threshold_factor)
+    plt.plot(best_signal)
+    #phases = plot_demodulate(best_signal, samples_per_fft=symbol_len)
+    #coded_bits = decode_phases(phases)
+    #bits = decode_bits(coded_bits)
     return bits
 
 def test_decode():
