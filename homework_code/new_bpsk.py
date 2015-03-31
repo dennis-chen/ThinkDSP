@@ -166,14 +166,15 @@ def decode_phases(phases):
 
 def cut_signal(x,detection_threshold_factor):
     """snips out relevant part of signal"""
-    max_val = np.amax(x)
-    print detection_threshold_factor*max_val
+    max_val = np.amax(np.abs(x))
+    print 'max val signal'
+    print max_val
     beginning, end = find_start_and_end(x, detection_threshold_factor*max_val)
     return x[beginning:end],beginning,end
 
 def decode_bits(bits):
     """chops off transmission start/end bits and flips bits as nesseccesary"""
-    bits = bits[1:-1]
+    #bits = bits[1:-1]
     if bits[1] == 0:
         bits = [1 if b == 0 else 0 for b in bits]
     return bits[1:]
