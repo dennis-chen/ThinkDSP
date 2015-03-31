@@ -128,7 +128,7 @@ def generate_bpsk_signal(bits, rate = 8820, symbol_len = 250, freq = 1000):
     times = np.linspace(0,transmission_end_t,num=len(square_signal))
     cos_signal = 7500*np.cos(freq*times)
     bpsk_signal = np.multiply(cos_signal, square_signal)
-    return bpsk_signal,cos_signal
+    return bpsk_signal, cos_signal
 
 def low_pass_filter(signal, rate, cutoff):
     w = thinkdsp.Wave(signal, rate)
@@ -166,19 +166,20 @@ def decode_phases(phases):
 
 def cut_signal(x,detection_threshold_factor):
     """snips out relevant part of signal"""
-    beginning, end = find_start_and_end(x, detection_threshold_factor)
-    return x[beginning:end]
+    max_val = np.amax(x)
+    print detection_threshold_factor*max_val
+    beginning, end = find_start_and_end(x, detection_threshold_factor*max_val)
+    return x[beginning:end],beginning,end
 
 def decode_bits(bits):
     """chops off transmission start/end bits and flips bits as nesseccesary"""
-    print bits
     bits = bits[1:-1]
     if bits[1] == 0:
         bits = [1 if b == 0 else 0 for b in bits]
     return bits[1:]
 
 def decode_bpsk_signal(x, freq=1000, rate = 8000, symbol_len = 250, detection_threshold_factor = 0.3, LPFbw = 320):
-    x = cut_signal(x,detection_threshold_factor)
+    x,beginning,end = cut_signal(x,detection_threshold_factor)
     transmission_end_t = len(x)/(1.0*rate)*2*np.pi
     times = np.linspace(0,transmission_end_t,num=len(x))
     phase_offsets = np.linspace(0,2*np.pi,16)
@@ -207,22 +208,35 @@ def test_decode():
     plt.plot(decoded)
     plt.show()
 
+def plot_wav_file(file_name):
+    fs, x = wavfile.read(file_name)
+    plt.plot(x)
+    plt.show()
+
 if __name__ == '__main__':
+    fs, x = wavfile.read('AcousticModemTx.wav')
+    signal,beginning,end = cut_signal(x, detection_threshold_factor=1.0)
+    print beginning,end
+    plt.subplot(2,1,1)
+    plt.plot(x)
+    plt.subplot(2,1,2)
+    plt.plot(x[beginning:end])
+    plt.show()
+    #bits,beginning,end = decode_bpsk_signal(x, freq= 1000, rate = fs, symbol_len = 250, detection_threshold_factor = 0.4, LPFbw = 320)
+    #print bits
+    #message_string = NPbits2String(bits)
+    #print message_string
+    #plot_wav_file('AcousticModemTx.wav')
     #bits = string2NPArray('autist')
     #signal,cos = generate_bpsk_signal(bits, rate = 8820, symbol_len = 250, freq = 1000)
     #wavfile.write('AcousticModemRx.wav', 8820, convert_to_int16(signal))
+    #original_signal = original_bpsk.generate_bpsk_signal(bits, rate = 8820, symbol_len = 250, freq = 1000)
+    #wavfile.write('OriginalAcousticModemRx.wav', 8820, convert_to_int16(signal))
 
     #plt.subplot(3,1,1)
-    #plt.plot(signal[500:600])
+    #plt.plot(signal[:2000])
     #plt.subplot(3,1,2)
-    #plt.plot(original_signal[500:600])
+    #plt.plot(original_signal[:2000])
     #plt.subplot(3,1,3)
-    #plt.plot(cos[500:600])
+    #plt.plot(cos)
     #plt.show()
-    #wavfile.write('AcousticModemRx.wav', 8820, convert_to_int16(signal))
-
-    fs, x = wavfile.read('AcousticModemTx.wav')
-    bits = decode_bpsk_signal(x, freq= 1000, rate = fs, symbol_len = 250, detection_threshold_factor = 0.4, LPFbw = 320)
-    print bits
-    message_string = NPbits2String(bits)
-    print message_string
