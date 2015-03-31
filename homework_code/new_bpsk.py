@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import thinkdsp
 from array import array
+import bpsk as original_bpsk
 
 
 # This function converts a string into a numpy array of bits
@@ -26,15 +27,6 @@ def NPbits2String(bits):
             tmp = tmp + (2**(6-k))*b
         S = S + chr(int(tmp))
     return S
-
-def bits_to_string(bits):
-    """takes [0, 1, 0, 1] lookin array and converts it to a str"""
-    final_str = ''
-    bits_unpadded = bits[1:-1]
-    for i in range(0,len(bits_unpadded)/8):
-        byte = bits_unpadded[i*8:(i+1)*8]
-        final_str += NPbits2String(byte[1:])
-    return final_str
 
 # this function is used to help convert numpy array data into a format
 # suitable for writing into a wave file
@@ -113,16 +105,13 @@ def bits_to_signal(bits, symbol_len):
     """converts array of bits to a signal array, where -1 and 1 represent 0 and 1, and
     control and transmission start/end bits are put in"""
     symbol_len = int(symbol_len)
-    zero = np.array([-1]*symbol_len)
-    one = np.array([1]*symbol_len)
+    symbol_zeros = np.array([0]*symbol_len)
     bits = [-1 if x==0 else x for x in bits]
-    square_signal = np.array([])
-    for i, bit in enumerate(bits):
-        if i%7 == 0: #Every 7 bits, shove the control bit in front.
-            square_signal = np.hstack((square_signal, one))
-        square_signal = np.hstack((square_signal, [bit]*symbol_len))
+    square_signal = np.array([1]*250) #first bit transmitted is always one to help with synchronization
+    for bit in bits:
+        square_signal = np.hstack((square_signal, np.array([bit]*symbol_len)))
     #append begin/end transmission bits
-    square_signal = np.hstack((zero, square_signal, zero))
+    square_signal = np.hstack((symbol_zeros, square_signal, symbol_zeros))
     return square_signal
 
 def my_gen_bpsk(bits, rate=8000, symbol_len=250, freq=1000):
@@ -135,11 +124,11 @@ def my_gen_bpsk(bits, rate=8000, symbol_len=250, freq=1000):
 
 def generate_bpsk_signal(bits, rate = 8820, symbol_len = 250, freq = 1000):
     square_signal = bits_to_signal(bits, symbol_len)
-    transmission_end_t = (float(symbol_len)/rate)*len(square_signal)
+    transmission_end_t = len(square_signal)/(1.0*rate)*2*np.pi
     times = np.linspace(0,transmission_end_t,num=len(square_signal))
-    cos_signal = np.cos(freq*times)
+    cos_signal = 7500*np.cos(freq*times)
     bpsk_signal = np.multiply(cos_signal, square_signal)
-    return bpsk_signal
+    return bpsk_signal,cos_signal
 
 def low_pass_filter(signal, rate, cutoff):
     w = thinkdsp.Wave(signal, rate)
@@ -149,15 +138,21 @@ def low_pass_filter(signal, rate, cutoff):
 
 def find_phase(fft):
     max_component = max(fft, key=lambda f: abs(f))
-    print max_component
     return np.angle(max_component)
 
 def demodulate(signal, samples_per_fft):
     phases = np.array([])
-    split_signal = np.split(signal, len(signal)/samples_per_fft)
-    for chunk in split_signal:
+    #split_signal = np.split(signal, len(signal)/samples_per_fft)
+    #for chunk in split_signal:
+    #    fft = scipy.fftpack.fft(chunk)
+    #    #print fft
+    #    phases = np.hstack((phases, find_phase(fft)))
+    for i in np.arange(0,len(signal),samples_per_fft):
+        try:
+            chunk = signal[i:i+samples_per_fft]
+        except:
+            chunk = signal[i:]
         fft = scipy.fftpack.fft(chunk)
-        #print fft
         phases = np.hstack((phases, find_phase(fft)))
     return phases
 
@@ -169,17 +164,22 @@ def decode_phases(phases):
         decoded_phases = [1 if p == 0 else 0 for p in decoded_phases]
     return decoded_phases
 
-def cut_signal(x):
+def cut_signal(x,detection_threshold_factor):
     """snips out relevant part of signal"""
-    beginning, end = find_start_and_end(x, threshold=100)
-    print x[beginning:end]
+    beginning, end = find_start_and_end(x, detection_threshold_factor)
     return x[beginning:end]
 
+def decode_bits(bits):
+    """chops off transmission start/end bits and flips bits as nesseccesary"""
+    print bits
+    bits = bits[1:-1]
+    if bits[1] == 0:
+        bits = [1 if b == 0 else 0 for b in bits]
+    return bits[1:]
+
 def decode_bpsk_signal(x, freq=1000, rate = 8000, symbol_len = 250, detection_threshold_factor = 0.3, LPFbw = 320):
-    print len(x)
-    x = cut_signal(x)
-    print len(x)
-    transmission_end_t = (float(symbol_len)/rate)*len(x)
+    x = cut_signal(x,detection_threshold_factor)
+    transmission_end_t = len(x)/(1.0*rate)*2*np.pi
     times = np.linspace(0,transmission_end_t,num=len(x))
     phase_offsets = np.linspace(0,2*np.pi,16)
     filtered_signals = []
@@ -190,8 +190,9 @@ def decode_bpsk_signal(x, freq=1000, rate = 8000, symbol_len = 250, detection_th
         filtered_signals.append(filtered_signal)
     best_signal = max(filtered_signals, key=lambda signal: max(signal))
     phases = demodulate(best_signal, samples_per_fft=symbol_len)
-    decoded_phases = decode_phases(phases)
-    return phases, decoded_phases
+    coded_bits = decode_phases(phases)
+    bits = decode_bits(coded_bits)
+    return bits
 
 def test_decode():
     bits = string2NPArray('a')
@@ -207,18 +208,21 @@ def test_decode():
     plt.show()
 
 if __name__ == '__main__':
-    from scipy.io import wavfile
-    fs, x = wavfile.read('AcousticModemRx.wav')
-# decode received signal into a numpy array of bits
-    bits = decode_bpsk_signal(x, freq=500, rate = fs, symbol_len = 250, detection_threshold_factor = 0.4, LPFbw = 320)
-# convert the numpy array of bits into a string
+    #bits = string2NPArray('autist')
+    #signal,cos = generate_bpsk_signal(bits, rate = 8820, symbol_len = 250, freq = 1000)
+    #wavfile.write('AcousticModemRx.wav', 8820, convert_to_int16(signal))
+
+    #plt.subplot(3,1,1)
+    #plt.plot(signal[500:600])
+    #plt.subplot(3,1,2)
+    #plt.plot(original_signal[500:600])
+    #plt.subplot(3,1,3)
+    #plt.plot(cos[500:600])
+    #plt.show()
+    #wavfile.write('AcousticModemRx.wav', 8820, convert_to_int16(signal))
+
+    fs, x = wavfile.read('AcousticModemTx.wav')
+    bits = decode_bpsk_signal(x, freq= 1000, rate = fs, symbol_len = 250, detection_threshold_factor = 0.4, LPFbw = 320)
+    print bits
     message_string = NPbits2String(bits)
-# print the decoded string
     print message_string
-    """
-    bits = string2NPArray('allen downey is gr9')
-    bpsk_signal, cos_signal, times, square_signal = my_gen_bpsk(bits)
-    phases, decoded = decode_bpsk_signal(bpsk_signal)
-    original_str = bits_to_string(decoded)
-    print original_str
-    """
